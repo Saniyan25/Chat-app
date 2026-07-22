@@ -33,24 +33,30 @@
 </head>
 <body>
 
+    <!-- Everything must stay cleanly nested inside this ONE container -->
     <div class="chat-container">
+        
+        <!-- 1. Header -->
         <div class="header">
-            <div class="avatar">💬</div>
-            <div>Miya biwi time</div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div class="avatar">💬</div>
+                <div>Miya biwi time</div>
+            </div>
+            <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
         </div>
-        <!-- Nudge button -->
-    <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
-</div>
 
+        <!-- 2. Message Area -->
         <div class="messages-area" id="messages-area"></div>
-        <!-- Typing indicator banner -->
-<div id="typing-indicator" style="padding: 5px 20px; font-size: 13px; color: #667781; font-style: italic; min-height: 25px; background-image: url('https://githubusercontent.com');"></div>
 
+        <!-- 3. Typing Indicator -->
+        <div id="typing-indicator" style="padding: 5px 20px; font-size: 13px; color: #667781; font-style: italic; min-height: 25px;"></div>
 
+        <!-- 4. Input Form (MUST be inside the chat-container wrapper) -->
         <form class="input-bar" id="chat-form">
             <input id="message-input" autocomplete="off" placeholder="Type a message" required />
             <button type="submit">Send</button>
         </form>
+
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
