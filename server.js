@@ -20,6 +20,21 @@ io.on('connection', (socket) => {
         io.emit('chat message', msg);
     });
 
+    // Listen for typing events and broadcast to everyone EXCEPT the person typing
+    socket.on('start typing', () => {
+        socket.broadcast.emit('user typing');
+    });
+
+    // Listen for stop typing events
+    socket.on('stop typing', () => {
+        socket.broadcast.emit('user stop typing');
+    });
+
+    // Listen for room alerts/nudges
+    socket.on('send nudge', () => {
+        socket.broadcast.emit('receive nudge');
+    });
+
     // Handle user disconnecting
     socket.on('disconnect', () => {
         console.log('User disconnected');

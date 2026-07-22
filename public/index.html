@@ -38,8 +38,14 @@
             <div class="avatar">💬</div>
             <div>Miya biwi time</div>
         </div>
+        <!-- Nudge button -->
+    <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
+</div>
 
         <div class="messages-area" id="messages-area"></div>
+        <!-- Typing indicator banner -->
+<div id="typing-indicator" style="padding: 5px 20px; font-size: 13px; color: #667781; font-style: italic; min-height: 25px; background-image: url('https://githubusercontent.com');"></div>
+
 
         <form class="input-bar" id="chat-form">
             <input id="message-input" autocomplete="off" placeholder="Type a message" required />
@@ -50,37 +56,72 @@
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const form = document.getElementById('chat-form');
-        const input = document.getElementById('message-input');
-        const messagesArea = document.getElementById('messages-area');
+const form = document.getElementById('chat-form');
+const input = document.getElementById('message-input');
+const messagesArea = document.getElementById('messages-area');
+const typingIndicator = document.getElementById('typing-indicator');
+const nudgeBtn = document.getElementById('nudge-btn');
 
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (input.value.trim()) {
-                // package message with sender ID
-                const messageData = { text: input.value, sender: socket.id };
-                socket.emit('chat message', messageData);
-                input.value = '';
-            }
-        });
+let typingTimeout;
 
-        socket.on('chat message', (data) => {
-            const msgElement = document.createElement('div');
-            
-            // Determine if the message belongs to you or your friend
-            if (data.sender === socket.id) {
-                msgElement.className = 'msg sent';
-            } else {
-                msgElement.className = 'msg received';
-            }
+// 1. Send text messages
+form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (input.value.trim()) {
+        const messageData = { text: input.value, sender: socket.id };
+        socket.emit('chat message', messageData);
+        input.value = '';
 
-            // Get standard localized digital clock timestamp
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
-            msgElement.innerHTML = `${data.text} <div class="msg-meta">${time}</div>`;
-            messagesArea.appendChild(msgElement);
-            messagesArea.scrollTop = messagesArea.scrollHeight;
-        });
+        // Instantly stop typing status when sending
+        socket.emit('stop typing');
+    }
+});
+
+// 2. Detect when the user is typing
+input.addEventListener('keypress', () => {
+    socket.emit('start typing');
+
+    // Clear old timer if user keeps typing
+    clearTimeout(typingTimeout);
+
+    // If user stops typing for 2 seconds, tell the server
+    typingTimeout = setTimeout(() => {
+        socket.emit('stop typing');
+    }, 2000);
+});
+
+// 3. Send a room nudge/alert
+nudgeBtn.addEventListener('click', () => {
+    socket.emit('send nudge');
+    alert("Sent a notification nudge to the room!");
+});
+
+// LISTENERS FROM SERVER
+socket.on('chat message', (data) => {
+    const msgElement = document.createElement('div');
+    msgElement.className = data.sender === socket.id ? 'msg sent' : 'msg received';
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    msgElement.innerHTML = `${data.text} <div class="msg-meta">${time}</div>`;
+    messagesArea.appendChild(msgElement);
+    messagesArea.scrollTop = messagesArea.scrollHeight;
+});
+
+// Show typing banner
+socket.on('user typing', () => {
+    typingIndicator.textContent = "Someone is typing...";
+});
+
+// Hide typing banner
+socket.on('user stop typing', () => {
+    typingIndicator.textContent = "";
+});
+
+// Receive nudge alert
+socket.on('receive nudge', () => {
+    // Play a standard browser notification alert sound & popup window
+    alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
+});
+
     </script>
 </body>
 </html>
