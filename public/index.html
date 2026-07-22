@@ -70,24 +70,29 @@ const nudgeBtn = document.getElementById('nudge-btn');
 
 let typingTimeout;
 
-// 1. Request Native System Notification Permission on load
-if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-    Notification.requestPermission();
+// SAFE PERMISSION CHECK: iPhones require a "try/catch" or "promise" handler 
+// or they will crash if asked for permissions automatically on load.
+try {
+    if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+} catch (e) {
+    console.log("Automatic notifications not supported on this mobile browser.");
 }
 
-// Helper function to handle fallback popups or system overlays
+// Helper function to safely send alerts without crashing mobile devices
 function sendNotification(title, bodyText) {
-    // If the browser tab is active/visible, don't spam system notifications
     if (document.visibilityState === "visible") return;
 
-    if (Notification.permission === "granted") {
+    // Check if the browser even supports Notifications (safari fallback)
+    if (window.Notification && Notification.permission === "granted") {
         new Notification(title, {
             body: bodyText,
-            icon: "https://flaticon.com" // WhatsApp color icon reference
+            icon: "https://flaticon.com"
         });
     } else {
-        // Fallback if system notifications are blocked by the OS/User
-        alert(`🚨 ${title}: ${bodyText}`);
+        // Safe fallback alert that works on all iPhones and PCs alike
+        console.log(`Notification blocked or unsupported: ${title} - ${bodyText}`);
     }
 }
 
@@ -119,6 +124,13 @@ input.addEventListener('keypress', () => {
 
 // 3. Send a room nudge/alert
 nudgeBtn.addEventListener('click', () => {
+    // If iPhone hasn't granted permission yet, ask safely when they tap the button
+    try {
+        if (window.Notification && Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+    } catch(e) {}
+
     socket.emit('send nudge');
     alert("Sent a notification nudge to the room!");
 });
@@ -131,6 +143,9 @@ socket.on('chat message', (data) => {
     msgElement.innerHTML = `${data.text} <div class="msg-meta">${time}</div>`;
     messagesArea.appendChild(msgElement);
     messagesArea.scrollTop = messagesArea.scrollHeight;
+    if (!isMe) {
+        sendNotification("New Message", data.text);
+    }
 });
 
 // Show typing banner
@@ -146,6 +161,7 @@ socket.on('user stop typing', () => {
 // Receive nudge alert
 socket.on('receive nudge', () => {
     sendNotification("Miya biwi time", "🚨 Your Jaan is waiting for you!");
+    alert("🚨 Miya biwi time", "🚨 Your Jaan is waiting for you!");
 });
 
     </script>
