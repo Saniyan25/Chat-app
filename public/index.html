@@ -70,6 +70,27 @@ const nudgeBtn = document.getElementById('nudge-btn');
 
 let typingTimeout;
 
+// 1. Request Native System Notification Permission on load
+if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+    Notification.requestPermission();
+}
+
+// Helper function to handle fallback popups or system overlays
+function sendNotification(title, bodyText) {
+    // If the browser tab is active/visible, don't spam system notifications
+    if (document.visibilityState === "visible") return;
+
+    if (Notification.permission === "granted") {
+        new Notification(title, {
+            body: bodyText,
+            icon: "https://flaticon.com" // WhatsApp color icon reference
+        });
+    } else {
+        // Fallback if system notifications are blocked by the OS/User
+        alert(`🚨 ${title}: ${bodyText}`);
+    }
+}
+
 // 1. Send text messages
 form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -124,8 +145,7 @@ socket.on('user stop typing', () => {
 
 // Receive nudge alert
 socket.on('receive nudge', () => {
-    // Play a standard browser notification alert sound & popup window
-    alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
+    sendNotification("Miya biwi time", "🚨 Your Jaan is waiting for you!");
 });
 
     </script>
