@@ -5,29 +5,24 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Configure socket server to accept stable websocket data frames
+// Use pure websocket frames for continuous mobile connectivity
 const io = new Server(server, {
     transports: ['websocket', 'polling']
 });
 
-// Serve frontend layout assets
 app.use(express.static(__dirname + '/public'));
 
-// Explicit fallback route to load the interface HTML file
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
-// Handle real-time user channels
 io.on('connection', (socket) => {
     console.log('A user connected: ' + socket.id);
 
-    // Forward text messages
     socket.on('chat message', (msg) => {
         io.emit('chat message', msg);
     });
 
-    // Handle user typing statuses
     socket.on('start typing', () => {
         socket.broadcast.emit('user typing');
     });
@@ -36,14 +31,13 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('user stop typing');
     });
 
-    // Handle room notifications/nudges
     socket.on('send nudge', () => {
         socket.broadcast.emit('receive nudge');
     });
 
-    // --- WebRTC Video Call Routing Signals ---
-    socket.on('webrtc-offer', (offer) => {
-        io.emit('webrtc-offer', offer);
+    // --- GLOBAL STREAMING SIGNALS (Fixes Proxy Hops) ---
+    socket.on('webrtc-offer', (data) => {
+        io.emit('webrtc-offer', data);
     });
 
     socket.on('webrtc-answer', (answer) => {
@@ -63,8 +57,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// Use dynamic cloud environment ports, fallback to 8080 locally
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
 });
