@@ -1,18 +1,23 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Baat</title>
     <style>
-        * { margin: 0; padding: 0; box-box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #dadbd4; }
         
         /* Main Container */
         .chat-container { width: 100%; max-width: 900px; height: 95vh; background: #efeae2; display: flex; flex-direction: column; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 10px; overflow: hidden; }
         
+        /* Layout Configuration Panels */
+        #app-wrapper { width: 100%; height: 100%; display: flex; flex-direction: column; position: relative; }
+        #chat-panel { display: flex; flex-direction: column; height: 100%; width: 100%; }
+        #video-panel { display: none; background: #141414; position: relative; height: 100%; width: 100%; flex-direction: column; }
+
         /* WhatsApp Header */
-        .header { background: #008069; color: white; padding: 15px 20px; display: flex; align-items: center; gap: 15px; font-weight: bold; }
+        .header { background: #008069; color: white; padding: 15px 20px; display: flex; align-items: center; gap: 15px; font-weight: bold; justify-content: space-between; }
         .avatar { width: 40px; height: 40px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
         
         /* Message Area */
@@ -33,137 +38,215 @@
 </head>
 <body>
 
-    <!-- Everything must stay cleanly nested inside this ONE container -->
     <div class="chat-container">
-        
-        <!-- 1. Header -->
-        <div class="header">
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <div class="avatar">💬</div>
-                <div>Miya biwi time</div>
+        <div id="app-wrapper">
+
+            <!-- PANEL 1: CHAT VIEW -->
+            <div id="chat-panel">
+                <div class="header">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div class="avatar">💬</div>
+                        <div>Miya biwi time</div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="call-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">📞 Video Call</button>
+                        <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
+                    </div>
+                </div>
+
+                <div class="messages-area" id="messages-area"></div>
+                <div id="typing-indicator" style="padding: 5px 20px; font-size: 13px; color: #667781; font-style: italic; min-height: 25px;"></div>
+
+                <form class="input-bar" id="chat-form">
+                    <input id="message-input" autocomplete="off" placeholder="Type a message" required />
+                    <button type="submit">Send</button>
+                </form>
             </div>
-            <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
+
+            <!-- PANEL 2: VIDEO PANEL VIEW -->
+            <div id="video-panel">
+                <div style="background: rgba(0,0,0,0.4); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: absolute; top: 0; width: 100%; z-index: 10;">
+                    <div>🟢 Live Video Stream</div>
+                    <button id="hangup-btn" style="background: #ea4335; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">❌ End Call</button>
+                </div>
+                <video id="remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                <video id="local-video" autoplay playsinline muted style="position: absolute; bottom: 20px; right: 20px; width: 100px; height: 140px; object-fit: cover; border: 2px solid white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"></video>
+            </div>
+
         </div>
-
-        <!-- 2. Message Area -->
-        <div class="messages-area" id="messages-area"></div>
-
-        <!-- 3. Typing Indicator -->
-        <div id="typing-indicator" style="padding: 5px 20px; font-size: 13px; color: #667781; font-style: italic; min-height: 25px;"></div>
-
-        <!-- 4. Input Form (MUST be inside the chat-container wrapper) -->
-        <form class="input-bar" id="chat-form">
-            <input id="message-input" autocomplete="off" placeholder="Type a message" required />
-            <button type="submit">Send</button>
-        </form>
-
     </div>
-
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
-const form = document.getElementById('chat-form');
-const input = document.getElementById('message-input');
-const messagesArea = document.getElementById('messages-area');
-const typingIndicator = document.getElementById('typing-indicator');
-const nudgeBtn = document.getElementById('nudge-btn');
+        const socket = io({ transports: ['websocket'] });
 
-let typingTimeout;
+        const form = document.getElementById('chat-form');
+        const input = document.getElementById('message-input');
+        const messagesArea = document.getElementById('messages-area');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const nudgeBtn = document.getElementById('nudge-btn');
 
-// SAFE PERMISSION CHECK: iPhones require a "try/catch" or "promise" handler 
-// or they will crash if asked for permissions automatically on load.
-try {
-    if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
-        Notification.requestPermission();
-    }
-} catch (e) {
-    console.log("Automatic notifications not supported on this mobile browser.");
-}
+        const chatPanel = document.getElementById('chat-panel');
+        const videoPanel = document.getElementById('video-panel');
+        const callBtn = document.getElementById('call-btn');
+        const hangupBtn = document.getElementById('hangup-btn');
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
 
-// Helper function to safely send alerts without crashing mobile devices
-function sendNotification(title, bodyText) {
-    if (document.visibilityState === "visible") return;
+        let typingTimeout;
+        let localStream;
+        let peerConnection;
 
-    // Check if the browser even supports Notifications (safari fallback)
-    if (window.Notification && Notification.permission === "granted") {
-        new Notification(title, {
-            body: bodyText,
-            icon: "https://flaticon.com"
-        });
-    } else {
-        // Safe fallback alert that works on all iPhones and PCs alike
-        console.log(`Notification blocked or unsupported: ${title} - ${bodyText}`);
-    }
-}
+        const rtcConfig = { iceServers: [{ urls: 'stun:://google.com' }] };
 
-// 1. Send text messages
-form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (input.value.trim()) {
-        const messageData = { text: input.value, sender: socket.id };
-        socket.emit('chat message', messageData);
-        input.value = '';
+        try {
+            if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
+                Notification.requestPermission();
+            }
+        } catch (e) {}
 
-        // Instantly stop typing status when sending
-        socket.emit('stop typing');
-    }
-});
-
-// 2. Detect when the user is typing
-input.addEventListener('keypress', () => {
-    socket.emit('start typing');
-
-    // Clear old timer if user keeps typing
-    clearTimeout(typingTimeout);
-
-    // If user stops typing for 2 seconds, tell the server
-    typingTimeout = setTimeout(() => {
-        socket.emit('stop typing');
-    }, 2000);
-});
-
-// 3. Send a room nudge/alert
-nudgeBtn.addEventListener('click', () => {
-    // If iPhone hasn't granted permission yet, ask safely when they tap the button
-    try {
-        if (window.Notification && Notification.permission !== "granted") {
-            Notification.requestPermission();
+        function sendNotification(title, bodyText) {
+            if (document.visibilityState === "visible") return;
+            if (window.Notification && Notification.permission === "granted") {
+                new Notification(title, { body: bodyText, icon: "https://flaticon.com" });
+            }
         }
-    } catch(e) {}
 
-    socket.emit('send nudge');
-    alert("Sent a notification nudge to the room!");
-});
+        function switchToVideoView(showVideo) {
+            if (showVideo) {
+                chatPanel.style.display = 'none';
+                videoPanel.style.display = 'flex';
+            } else {
+                chatPanel.style.display = 'flex';
+                videoPanel.style.display = 'none';
+                if (localStream) { localStream.getTracks().forEach(track => track.stop()); }
+                if (peerConnection) { peerConnection.close(); }
+            }
+        }
 
-// LISTENERS FROM SERVER
-socket.on('chat message', (data) => {
-    const msgElement = document.createElement('div');
-    msgElement.className = data.sender === socket.id ? 'msg sent' : 'msg received';
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    msgElement.innerHTML = `${data.text} <div class="msg-meta">${time}</div>`;
-    messagesArea.appendChild(msgElement);
-    messagesArea.scrollTop = messagesArea.scrollHeight;
-    if (!isMe) {
-        sendNotification("New Message", data.text);
-    }
-});
+        // --- WEBRTC OUTGOING CALL SYSTEM INTERFACES ---
+        callBtn.addEventListener('click', async () => {
+            switchToVideoView(true);
+            
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+            } catch (err) {
+                alert("Could not access media hardware.");
+                switchToVideoView(false);
+                return;
+            }
 
-// Show typing banner
-socket.on('user typing', () => {
-    typingIndicator.textContent = "Someone is typing...";
-});
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-// Hide typing banner
-socket.on('user stop typing', () => {
-    typingIndicator.textContent = "";
-});
+            peerConnection.ontrack = (event) => {
+                if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
+            };
 
-// Receive nudge alert
-socket.on('receive nudge', () => {
-    sendNotification("Miya biwi time", "🚨 Your Jaan is waiting for you!");
-    alert("🚨 Miya biwi time", "🚨 Your Jaan is waiting for you!");
-});
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) socket.emit('webrtc-ice', event.candidate);
+            };
 
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('webrtc-offer', offer);
+        });
+
+        hangupBtn.addEventListener('click', () => {
+            switchToVideoView(false);
+            socket.emit('end-call');
+        });
+
+        // --- TEXT CHAT & STATUS ENGINE INTERFACES ---
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value.trim()) {
+                const messageData = { text: input.value, sender: socket.id };
+                socket.emit('chat message', messageData);
+                input.value = '';
+                socket.emit('stop typing');
+            }
+        });
+
+        input.addEventListener('keypress', () => {
+            socket.emit('start typing');
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => { socket.emit('stop typing'); }, 2000);
+        });
+
+        nudgeBtn.addEventListener('click', () => {
+            try { if (window.Notification && Notification.permission !== "granted") { Notification.requestPermission(); } } catch (e) {}
+            socket.emit('send nudge');
+            alert("Sent a notification nudge to the room!");
+        });
+
+        socket.on('chat message', (data) => {
+            const msgElement = document.createElement('div');
+            const isMe = data.sender === socket.id;
+            msgElement.className = isMe ? 'msg sent' : 'msg received';
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            msgElement.innerHTML = `${data.text}<div class="msg-meta">${time}</div>`;
+            messagesArea.appendChild(msgElement);
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+            if (!isMe) sendNotification("New Message", data.text);
+        });
+
+        socket.on('user typing', () => { typingIndicator.textContent = "Someone is typing..."; });
+        socket.on('user stop typing', () => { typingIndicator.textContent = ""; });
+        socket.on('receive nudge', () => {
+            sendNotification("Miya biwi time", "🚨 Wake up! Someone is waiting for you in the chatroom!");
+            alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
+        });
+
+        // --- WEBRTC INCOMING CALL ROUTING LISTENERS ---
+        socket.on('webrtc-offer', async (offer) => {
+            const acceptCall = confirm("📞 Incoming Video Call! Click OK to accept and turn on your microphone.");
+            if (!acceptCall) {
+                socket.emit('end-call');
+                return;
+            }
+
+            switchToVideoView(true);
+
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+            } catch (err) {
+                alert("Could not access media hardware.");
+                switchToVideoView(false);
+                socket.emit('end-call');
+                return;
+            }
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = (event) => {
+                if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
+            };
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) socket.emit('webrtc-ice', event.candidate);
+            };
+
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('webrtc-answer', answer);
+        });
+
+        socket.on('webrtc-answer', async (answer) => {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        });
+
+        socket.on('webrtc-ice', async (candidate) => {
+            try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) {}
+        });
+
+        socket.on('end-call', () => {
+            switchToVideoView(false);
+            alert("The video call has ended.");
+        });
     </script>
 </body>
 </html>

@@ -1,49 +1,70 @@
-// Import the open-source frameworks we installed
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
-// Serve your frontend HTML file automatically
+// Configure socket server to accept stable websocket data frames
+const io = new Server(server, {
+    transports: ['websocket', 'polling']
+});
+
+// Serve frontend layout assets
 app.use(express.static(__dirname + '/public'));
 
-// Listen for a user connecting to your website
+// Explicit fallback route to load the interface HTML file
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/public/index.html');
+});
+
+// Handle real-time user channels
 io.on('connection', (socket) => {
     console.log('A user connected: ' + socket.id);
 
-    // Listen for a message sent by a specific user
+    // Forward text messages
     socket.on('chat message', (msg) => {
-        // Forward that message to every other connected user
         io.emit('chat message', msg);
     });
 
-    // Listen for typing events and broadcast to everyone EXCEPT the person typing
+    // Handle user typing statuses
     socket.on('start typing', () => {
         socket.broadcast.emit('user typing');
     });
 
-    // Listen for stop typing events
     socket.on('stop typing', () => {
         socket.broadcast.emit('user stop typing');
     });
 
-    // Listen for room alerts/nudges
+    // Handle room notifications/nudges
     socket.on('send nudge', () => {
         socket.broadcast.emit('receive nudge');
     });
 
-    // Handle user disconnecting
+    // --- WebRTC Video Call Routing Signals ---
+    socket.on('webrtc-offer', (offer) => {
+        socket.broadcast.emit('webrtc-offer', offer);
+    });
+
+    socket.on('webrtc-answer', (answer) => {
+        socket.broadcast.emit('webrtc-answer', answer);
+    });
+
+    socket.on('webrtc-ice', (candidate) => {
+        socket.broadcast.emit('webrtc-ice', candidate);
+    });
+
+    socket.on('end-call', () => {
+        socket.broadcast.emit('end-call');
+    });
+
     socket.on('disconnect', () => {
         console.log('User disconnected');
     });
 });
 
-// Start the server on port 3000
-const PORT = process.env.PORT || 3000;
-
+// Use dynamic cloud environment ports, fallback to 8080 locally
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
