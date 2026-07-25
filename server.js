@@ -43,19 +43,19 @@ io.on('connection', (socket) => {
 
     // --- WebRTC Video Call Routing Signals ---
     socket.on('webrtc-offer', (offer) => {
-        socket.broadcast.emit('webrtc-offer', offer);
+        io.emit('webrtc-offer', offer);
     });
 
     socket.on('webrtc-answer', (answer) => {
-        socket.broadcast.emit('webrtc-answer', answer);
+        io.emit('webrtc-answer', answer);
     });
 
     socket.on('webrtc-ice', (candidate) => {
-        socket.broadcast.emit('webrtc-ice', candidate);
+        io.emit('webrtc-ice', candidate);
     });
 
     socket.on('end-call', () => {
-        socket.broadcast.emit('end-call');
+        io.emit('end-call');
     });
 
     socket.on('disconnect', () => {

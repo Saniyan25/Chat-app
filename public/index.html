@@ -147,9 +147,11 @@
                 if (event.candidate) socket.emit('webrtc-ice', event.candidate);
             };
 
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit('webrtc-offer', offer);
+            // Package the offer along with your unique sender ID
+const offer = await peerConnection.createOffer();
+await peerConnection.setLocalDescription(offer);
+socket.emit('webrtc-offer', { offer: offer, senderId: socket.id });
+
         });
 
         hangupBtn.addEventListener('click', () => {
@@ -199,41 +201,45 @@
         });
 
         // --- WEBRTC INCOMING CALL ROUTING LISTENERS ---
-        socket.on('webrtc-offer', async (offer) => {
-            const acceptCall = confirm("📞 Incoming Video Call! Click OK to accept and turn on your microphone.");
-            if (!acceptCall) {
-                socket.emit('end-call');
-                return;
-            }
+        socket.on('webrtc-offer', async (data) => {
+    // CRUCIAL: If the call offer came from your own device, stop and ignore it!
+    if (data.senderId === socket.id) return;
 
-            switchToVideoView(true);
+    // Otherwise, this is from your friend! Trigger the popup immediately
+    const acceptCall = confirm("📞 Incoming Video Call! Click OK to accept and turn on your camera.");
+    if (!acceptCall) {
+        socket.emit('end-call');
+        return;
+    }
 
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                localVideo.srcObject = localStream;
-            } catch (err) {
-                alert("Could not access media hardware.");
-                switchToVideoView(false);
-                socket.emit('end-call');
-                return;
-            }
+    switchToVideoView(true);
 
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+    } catch (err) {
+        alert("Could not access camera or microphone.");
+        socket.emit('end-call');
+        return;
+    }
 
-            peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
-            };
+    peerConnection = new RTCPeerConnection(rtcConfig);
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) socket.emit('webrtc-ice', event.candidate);
-            };
+    peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
+    };
 
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit('webrtc-answer', answer);
-        });
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate) socket.emit('webrtc-ice', event.candidate);
+    };
+
+    // Read the offer string nested inside the data package
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('webrtc-answer', answer);
+});
 
         socket.on('webrtc-answer', async (answer) => {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
