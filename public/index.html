@@ -99,15 +99,7 @@
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
-// Bulletproof array mapping to bypass strict browser hostname checkers
-const rtcConfig = {
-    iceServers: [
-        { 
-            urls: ["stun:://google.com", "stun:://google.com"] 
-        }
-    ]
-};
-
+const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         socket.on('assign-role', (data) => {
             iAmPolite = data.isPolite;
