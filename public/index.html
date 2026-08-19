@@ -99,7 +99,7 @@
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
-        const rtcConfig = { iceServers: [{ urls: 'stun:://google.com' }] };
+        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         socket.on('assign-role', (data) => {
             iAmPolite = data.isPolite;
