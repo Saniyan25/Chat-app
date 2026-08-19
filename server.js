@@ -5,7 +5,6 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Use pure websocket frames for continuous mobile connectivity
 const io = new Server(server, {
     transports: ['websocket', 'polling']
 });
@@ -20,11 +19,12 @@ app.get('/', (req, res) => {
 let activeUsers = [];
 
 io.on('connection', (socket) => {
-    // Add new user to our tracking system
+    // Add new user to our tracking tracking system
     activeUsers.push(socket.id);
     console.log('User connected: ' + socket.id);
 
-    // Assign polite/impolite role immediately upon connection
+    // Tell this specific user if they are the "Polite" or "Impolite" peer
+    // The first user in the array (index 0) is Impolite (takes precedence)
     const isPolite = activeUsers.indexOf(socket.id) !== 0;
     socket.emit('assign-role', { isPolite: isPolite });
 
@@ -44,21 +44,20 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('receive nudge');
     });
 
-    // --- FIX: Use broadcast instead of io.emit to prevent self-signaling loop ---
     socket.on('webrtc-offer', (data) => {
-        socket.broadcast.emit('webrtc-offer', data);
+        io.emit('webrtc-offer', data);
     });
 
     socket.on('webrtc-answer', (data) => {
-        socket.broadcast.emit('webrtc-answer', data);
+        io.emit('webrtc-answer', data);
     });
 
     socket.on('webrtc-ice', (data) => {
-        socket.broadcast.emit('webrtc-ice', data);
+        io.emit('webrtc-ice', data);
     });
 
     socket.on('end-call', () => {
-        socket.broadcast.emit('end-call');
+        io.emit('end-call');
     });
 
     socket.on('disconnect', () => {
@@ -66,7 +65,7 @@ io.on('connection', (socket) => {
         // Clean them out of the tracking index
         activeUsers = activeUsers.filter(id => id !== socket.id);
         
-        // Re-assign roles to remaining users
+        // Re-assign roles to remaining users so someone is always the stable host
         activeUsers.forEach((id, index) => {
             io.to(id).emit('assign-role', { isPolite: index !== 0 });
         });
