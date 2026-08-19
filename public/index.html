@@ -72,7 +72,7 @@
 
       <script src="/socket.io/socket.io.js"></script>
     <script>
-              const socket = io({ transports: ['websocket'] });
+        const socket = io({ transports: ['websocket'] });
 
         const form = document.getElementById('chat-form');
         const input = document.getElementById('message-input');
@@ -89,7 +89,6 @@
         const localVideo = document.getElementById('local-video');
         const remoteVideo = document.getElementById('remote-video');
         const callStatusText = document.getElementById('call-status-text');
-        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         let typingTimeout;
         let localStream;
@@ -99,6 +98,8 @@
         let makingOffer = false;
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
+
+const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         socket.on('assign-role', (data) => {
             iAmPolite = data.isPolite;
@@ -132,8 +133,6 @@
                 if (peerConnection) { peerConnection.close(); }
             }
         }
-
-        // --- MULTI-MODE OUTGOING CALL ENGINE ---
         async function startCallFlow(wantVideo) {
             switchToVideoView(true);
             callStatusText.textContent = wantVideo ? "📹 Video Call Connecting..." : "📞 Voice Call Connecting...";
@@ -148,14 +147,13 @@
                 return;
             }
 
-            // Fixed inline configuration to bypass variable typos
-            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: "stun:://google.com" }] });
+            peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams) { 
-                    remoteVideo.srcObject = event.streams; 
-                    const hasVideo = event.streams.getVideoTracks().length > 0;
+                if (event.streams && event.streams[0]) { 
+                    remoteVideo.srcObject = event.streams[0]; 
+                    const hasVideo = event.streams[0].getVideoTracks().length > 0;
                     remoteVideo.style.display = hasVideo ? 'block' : 'none';
                 }
             };
@@ -184,8 +182,8 @@
         toggleCamBtn.addEventListener('click', async () => {
             const videoTracks = localStream.getVideoTracks();
             if (videoTracks.length > 0) {
-                videoTracks.enabled = !videoTracks.enabled;
-                localVideo.style.display = videoTracks.enabled ? 'block' : 'none';
+                videoTracks[0].enabled = !videoTracks[0].enabled;
+                localVideo.style.display = videoTracks[0].enabled ? 'block' : 'none';
             }
         });
 
@@ -193,6 +191,7 @@
             switchToVideoView(false);
             socket.emit('end-call');
         });
+
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             if (input.value.trim()) {
@@ -214,7 +213,6 @@
             socket.emit('send nudge');
             alert("Sent a notification nudge to the room!");
         });
-
         socket.on('chat message', (data) => {
             const msgElement = document.createElement('div');
             const isMe = data.sender === socket.id;
@@ -233,23 +231,18 @@
             alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
         });
 
-        // --- NEW IMMUNE ANTI-COLLISION INCOMING CALL ENGINE ---
+        // --- NEW: FIXES RACE CONDITIONS VIA REAL-TIME SOCKET DESCRIPTORS ---
         socket.on('webrtc-offer', async (data) => {
-            if (data.senderId === socket.id) return;
+            if (data.senderId === socket.id) return; // Drop own echo data
 
+            // Target collision validation check
             const collision = makingOffer || (peerConnection && peerConnection.signalingState !== "stable");
             
-
-            if (collision) {
-                if (!iAmPolite) {
-                    console.log("Collision: Impolite peer ignoring conflicting offer.");
-                    return; 
-                } else {
-                    console.log("Collision: Polite peer clearing connection backlog.");
-                    if (peerConnection) { peerConnection.close(); }
-                    // FIXED: Generate brand-new open channel before calling tracks
-                    peerConnection = new RTCPeerConnection(config);
-                }
+            // If there's a conflict and you connected first (Impolite), ignore their call offer 
+            // because your outgoing call offer has the master privilege over the room!
+            if (!iAmPolite && collision) {
+                console.log("Collision averted: Master node dropped conflicting incoming packet frame.");
+                return; 
             }
 
             const alertTitle = data.videoMode ? "📹 Incoming Video Call!" : "📞 Incoming Voice Call!";
@@ -272,13 +265,13 @@
                 return;
             }
 
-            if (!peerConnection) { peerConnection = new RTCPeerConnection(config); }
+            if (!peerConnection) { peerConnection = new RTCPeerConnection(rtcConfig); }
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams) { 
-                    remoteVideo.srcObject = event.streams; 
-                    const hasVideo = event.streams.getVideoTracks().length > 0;
+                if (event.streams && event.streams[0]) { 
+                    remoteVideo.srcObject = event.streams[0]; 
+                    const hasVideo = event.streams[0].getVideoTracks().length > 0;
                     remoteVideo.style.display = hasVideo ? 'block' : 'none';
                 }
             };
@@ -321,7 +314,6 @@
             switchToVideoView(false);
             alert("The call has ended.");
         });
-
     </script>
 </body>
 </html>
