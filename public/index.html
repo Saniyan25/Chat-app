@@ -13,7 +13,7 @@
         #video-panel { display: none; background: #141414; position: relative; height: 100%; width: 100%; flex-direction: column; }
         .header { background: #008069; color: white; padding: 15px 20px; display: flex; align-items: center; gap: 15px; font-weight: bold; justify-content: space-between; }
         .avatar { width: 40px; height: 40px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-        .messages-area { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background-color: #efeae2; }
+        .messages-area { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background-image: url('https://githubusercontent.com'); }
         .msg { max-width: 65%; padding: 8px 14px; border-radius: 8px; font-size: 15px; line-height: 1.4; word-wrap: break-word; position: relative; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
         .msg.received { background: white; align-self: flex-start; border-top-left-radius: 0; }
         .msg.sent { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 0; }
@@ -57,7 +57,7 @@
                     </div>
                 </div>
                 <video id="remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
-                <video id="local-video" autoplay playsinline muted style="position: absolute; bottom: 20px; right: 20px; width: 100px; height: 140px; object-fit: cover; border: 2px solid white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"></video>
+                <video id="local-video" autoplay playsinline muted style="position: absolute; bottom: 20px; right: 20px; width: 100px; height: 140px; object-fit: cover; border: 2px solid white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transform: scaleX(-1);"></video>
             </div>
         </div>
     </div>
@@ -73,34 +73,50 @@
 
         const chatPanel = document.getElementById('chat-panel');
         const videoPanel = document.getElementById('video-panel');
+        const voiceCallBtn = document.getElementById('voice-call-btn');
         const callBtn = document.getElementById('call-btn');
+        const toggleCamBtn = document.getElementById('toggle-cam-btn');
         const hangupBtn = document.getElementById('hangup-btn');
         const localVideo = document.getElementById('local-video');
         const remoteVideo = document.getElementById('remote-video');
+        const callStatusText = document.getElementById('call-status-text');
 
         let typingTimeout;
         let localStream;
         let peerConnection;
         
-        // TIMING TIMEOUT CONTROLS: Queues up candidates until the offer description finishes setting up
+        let iAmPolite = false; 
+        let makingOffer = false;
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
-        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        // --- FIX: Correct Google STUN Server URI ---
+        const rtcConfig = { 
+            iceServers: [{ urls: 'stun:://google.com' }] 
+        };
 
-        try {
-            if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
-                Notification.requestPermission();
+        socket.on('assign-role', (data) => {
+            iAmPolite = data.isPolite;
+        });
+
+        // --- CHAT SYSTEM LOGIC ---
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value.trim()) {
+                socket.emit('chat message', input.value);
+                input.value = '';
             }
-        } catch (e) {}
+        });
 
-        function sendNotification(title, bodyText) {
-            if (document.visibilityState === "visible") return;
-            if (window.Notification && Notification.permission === "granted") {
-                new Notification(title, { body: bodyText, icon: "https://flaticon.com" });
-            }
-        }
+        socket.on('chat message', (msg) => {
+            const item = document.createElement('div');
+            item.classList.add('msg', 'received'); // default layout
+            item.textContent = msg;
+            messagesArea.appendChild(item);
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        });
 
+        // --- WEBRTC CORE FLOW ---
         function switchToVideoView(showVideo) {
             if (showVideo) {
                 chatPanel.style.display = 'none';
@@ -108,163 +124,141 @@
             } else {
                 chatPanel.style.display = 'flex';
                 videoPanel.style.display = 'none';
+                makingOffer = false;
                 isRemoteDescriptionSet = false;
                 iceCandidateQueue = [];
-                if (localStream) { localStream.getTracks().forEach(track => track.stop()); }
-                if (peerConnection) { peerConnection.close(); }
+                if (localStream) { 
+                    localStream.getTracks().forEach(track => track.stop()); 
+                    localStream = null;
+                }
+                if (peerConnection) { 
+                    peerConnection.close(); 
+                    peerConnection = null;
+                }
             }
         }
 
-        // --- WEBRTC OUTGOING CALL INTERFACES ---
-        callBtn.addEventListener('click', async () => {
+        async function startCallFlow(wantVideo) {
             switchToVideoView(true);
-            
+            callStatusText.textContent = "Connecting...";
+
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                // Fetch local camera & microphone streams
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: wantVideo, 
+                    audio: true 
+                });
                 localVideo.srcObject = localStream;
+
+                // Instantiate peer connection object
+                peerConnection = new RTCPeerConnection(rtcConfig);
+
+                // Attach media streams to network pipeline
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+
+                // Send ICE Network routes to signaling server
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        socket.emit('webrtc-ice', event.candidate);
+                    }
+                };
+
+                // Catch incoming media streams from partner
+                peerConnection.ontrack = (event) => {
+                    if (remoteVideo.srcObject !== event.streams[0]) {
+                        remoteVideo.srcObject = event.streams[0];
+                        callStatusText.textContent = "🟢 Connected";
+                    }
+                };
+
+                // Handle incoming negotiation criteria dynamically
+                peerConnection.onnegotiationneeded = async () => {
+                    try {
+                        makingOffer = true;
+                        await peerConnection.setLocalDescription();
+                        socket.emit('webrtc-offer', peerConnection.localDescription);
+                    } catch (err) {
+                        console.error("Negotiation setup failed", err);
+                    } finally {
+                        makingOffer = false;
+                    }
+                };
+
             } catch (err) {
-                alert("Could not access camera/microphone.");
+                console.error("Could not access media devices.", err);
+                alert("Please check that microphone and camera access is granted in your browser settings.");
                 switchToVideoView(false);
-                return;
             }
+        }
 
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
-            };
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit('webrtc-ice', { candidate: event.candidate, senderId: socket.id });
-                }
-            };
-
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit('webrtc-offer', { offer: offer, senderId: socket.id });
-        });
-
-        hangupBtn.addEventListener('click', () => {
-            switchToVideoView(false);
-            socket.emit('end-call');
-        });
-
-        // --- BASE CHAT LISTENERS ---
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (input.value.trim()) {
-                const messageData = { text: input.value, sender: socket.id };
-                socket.emit('chat message', messageData);
-                input.value = '';
-                socket.emit('stop typing');
+        // --- CALL SIGNAL RECEIVERS ---
+        socket.on('webrtc-offer', async (offer) => {
+            if (!peerConnection) {
+                // If receiver didn't click call, start connection passively
+                await startCallFlow(true); 
             }
-        });
-
-        input.addEventListener('keypress', () => {
-            socket.emit('start typing');
-            clearTimeout(typingTimeout);
-            typingTimeout = setTimeout(() => { socket.emit('stop typing'); }, 2000);
-        });
-
-        nudgeBtn.addEventListener('click', () => {
-            try { if (window.Notification && Notification.permission !== "granted") { Notification.requestPermission(); } } catch (e) {}
-            socket.emit('send nudge');
-            alert("Sent a notification nudge to the room!");
-        });
-
-        socket.on('chat message', (data) => {
-            const msgElement = document.createElement('div');
-            const isMe = data.sender === socket.id;
-            msgElement.className = isMe ? 'msg sent' : 'msg received';
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            msgElement.innerHTML = `${data.text}<div class="msg-meta">${time}</div>`;
-            messagesArea.appendChild(msgElement);
-            messagesArea.scrollTop = messagesArea.scrollHeight;
-            if (!isMe) sendNotification("New Message", data.text);
-        });
-
-        socket.on('user typing', () => { typingIndicator.textContent = "Someone is typing..."; });
-        socket.on('user stop typing', () => { typingIndicator.textContent = ""; });
-        socket.on('receive nudge', () => {
-            sendNotification("Miya biwi time", "🚨 Wake up! Someone is waiting for you in the chatroom!");
-            alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
-        });
-
-        // --- FIXED: INCOMING CALL PROCESSOR WITH ANTI-RACE CONDITION TIMING QUEUE ---
-        socket.on('webrtc-offer', async (data) => {
-            if (data.senderId === socket.id) return;
-
-            const collision = makingOffer || peerConnection?.signalingState !== "stable";
-            if (!iAmPolite && collision) return; 
-
-            const alertTitle = data.videoMode ? "📹 Incoming Video Call!" : "📞 Incoming Voice Call!";
-            const acceptCall = confirm(`${alertTitle} Click OK to accept.`);
-            if (!acceptCall) {
-                socket.emit('end-call');
-                return;
-            }
-
-            switchToVideoView(true);
-            callStatusText.textContent = "🟢 Live Connected";
-
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: data.videoMode, audio: true });
-                localVideo.srcObject = localStream;
-                localVideo.style.display = data.videoMode ? 'block' : 'none';
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                isRemoteDescriptionSet = true;
+                
+                // Process pending items in connection queue
+                while (iceCandidateQueue.length) {
+                    await peerConnection.addIceCandidate(iceCandidateQueue.shift());
+                }
+
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('webrtc-answer', peerConnection.localDescription);
             } catch (err) {
-                alert("Could not access media devices.");
-                socket.emit('end-call');
-                return;
+                console.error("Failed processing incoming call offer:", err);
             }
-
-            if (!peerConnection) { peerConnection = new RTCPeerConnection(rtcConfig); }
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams[0]) { 
-                    remoteVideo.srcObject = event.streams[0]; 
-                    const hasVideo = event.streams[0].getVideoTracks().length > 0;
-                    remoteVideo.style.display = hasVideo ? 'block' : 'none';
-                }
-            };
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit('webrtc-ice', { candidate: event.candidate, senderId: socket.id });
-                }
-            };
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            isRemoteDescriptionSet = true;
-            while (iceCandidateQueue.length > 0) {
-                const cand = iceCandidateQueue.shift();
-                try { await peerConnection.addIceCandidate(new RTCIceCandidate(cand)); } catch(e) {}
-            }
-
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit('webrtc-answer', { answer: answer, senderId: socket.id });
-        });
-        socket.on('webrtc-answer', async (data) => {
-            if (data.senderId === socket.id) return;
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            callStatusText.textContent = "🟢 Live Connected";
         });
 
-        socket.on('webrtc-ice', async (data) => {
-            if (data.senderId === socket.id) return;
-            if (!isRemoteDescriptionSet) {
-                iceCandidateQueue.push(data.candidate);
-            } else {
-                try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) {}
+        socket.on('webrtc-answer', async (answer) => {
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                isRemoteDescriptionSet = true;
+            } catch (err) {
+                console.error("Failed processing answer:", err);
+            }
+        });
+
+        socket.on('webrtc-ice', async (candidate) => {
+            try {
+                const iceCandidate = new RTCIceCandidate(candidate);
+                if (isRemoteDescriptionSet && peerConnection) {
+                    await peerConnection.addIceCandidate(iceCandidate);
+                } else {
+                    iceCandidateQueue.push(iceCandidate);
+                }
+            } catch (err) {
+                console.error("Failed handling ICE transmission:", err);
             }
         });
 
         socket.on('end-call', () => {
             switchToVideoView(false);
-            alert("The call has ended.");
+        });
+
+        // --- BUTTON EVENT LISTENERS ---
+        callBtn.addEventListener('click', () => startCallFlow(true));
+        voiceCallBtn.addEventListener('click', () => startCallFlow(false));
+        
+        hangupBtn.addEventListener('click', () => {
+            socket.emit('end-call');
+            switchToVideoView(false);
+        });
+
+        toggleCamBtn.addEventListener('click', () => {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    videoTrack.enabled = !videoTrack.enabled;
+                    toggleCamBtn.textContent = videoTrack.enabled ? "📷 Camera On/Off" : "📷 Camera Off";
+                }
+            }
         });
     </script>
 </body>

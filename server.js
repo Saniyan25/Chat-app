@@ -44,21 +44,21 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('receive nudge');
     });
 
-    // --- GLOBAL STREAMING SIGNALS (Fixes Proxy Hops) ---
+    // --- FIX: Use broadcast instead of io.emit to prevent self-signaling loop ---
     socket.on('webrtc-offer', (data) => {
-        io.emit('webrtc-offer', data);
+        socket.broadcast.emit('webrtc-offer', data);
     });
 
     socket.on('webrtc-answer', (data) => {
-        io.emit('webrtc-answer', data);
+        socket.broadcast.emit('webrtc-answer', data);
     });
 
     socket.on('webrtc-ice', (data) => {
-        io.emit('webrtc-ice', data);
+        socket.broadcast.emit('webrtc-ice', data);
     });
 
     socket.on('end-call', () => {
-        io.emit('end-call');
+        socket.broadcast.emit('end-call');
     });
 
     socket.on('disconnect', () => {
