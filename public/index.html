@@ -72,7 +72,7 @@
 
       <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io({ transports: ['websocket'] });
+                const socket = io({ transports: ['websocket'] });
 
         const form = document.getElementById('chat-form');
         const input = document.getElementById('message-input');
@@ -99,7 +99,7 @@
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
-const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        const rtcConfig = { iceServers: [{ urls: 'stun:://google.com' }] };
 
         socket.on('assign-role', (data) => {
             iAmPolite = data.isPolite;
@@ -133,6 +133,7 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
                 if (peerConnection) { peerConnection.close(); }
             }
         }
+
         async function startCallFlow(wantVideo) {
             switchToVideoView(true);
             callStatusText.textContent = wantVideo ? "📹 Video Call Connecting..." : "📞 Voice Call Connecting...";
@@ -191,7 +192,6 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
             switchToVideoView(false);
             socket.emit('end-call');
         });
-
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             if (input.value.trim()) {
@@ -213,6 +213,7 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
             socket.emit('send nudge');
             alert("Sent a notification nudge to the room!");
         });
+
         socket.on('chat message', (data) => {
             const msgElement = document.createElement('div');
             const isMe = data.sender === socket.id;
@@ -231,18 +232,23 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
             alert("🚨 Wake up! Someone is waiting for you in the chatroom!");
         });
 
-        // --- NEW: FIXES RACE CONDITIONS VIA REAL-TIME SOCKET DESCRIPTORS ---
+        // --- FIXED COLLISION HANDLING INCOMING CALL ENGINE ---
         socket.on('webrtc-offer', async (data) => {
             if (data.senderId === socket.id) return; // Drop own echo data
 
-            // Target collision validation check
             const collision = makingOffer || (peerConnection && peerConnection.signalingState !== "stable");
             
-            // If there's a conflict and you connected first (Impolite), ignore their call offer 
-            // because your outgoing call offer has the master privilege over the room!
-            if (!iAmPolite && collision) {
-                console.log("Collision averted: Master node dropped conflicting incoming packet frame.");
-                return; 
+            if (collision) {
+                if (!iAmPolite) {
+                    console.log("Collision: Impolite peer ignored conflicting offer.");
+                    return; 
+                } else {
+                    console.log("Collision: Polite peer backing down to accept incoming call.");
+                    if (peerConnection) {
+                        peerConnection.close();
+                        peerConnection = null;
+                    }
+                }
             }
 
             const alertTitle = data.videoMode ? "📹 Incoming Video Call!" : "📞 Incoming Voice Call!";
@@ -314,6 +320,7 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
             switchToVideoView(false);
             alert("The call has ended.");
         });
+    
     </script>
 </body>
 </html>
