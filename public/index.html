@@ -35,7 +35,8 @@
                         <div>Miya biwi time</div>
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button id="call-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">📞 Video Call</button>
+                        <button id="voice-call-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">📞 Voice Call</button>
+                        <button id="call-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">📹 Video Call</button>
                         <button id="nudge-btn" style="background: #128c7e; color: white; border: 1px solid #ffffff50; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;">🔔 Call Friend</button>
                     </div>
                 </div>
@@ -49,8 +50,11 @@
             <!-- PANEL 2: LIVE CALL PANEL -->
             <div id="video-panel">
                 <div style="background: rgba(0,0,0,0.4); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: absolute; top: 0; width: 100%; z-index: 10;">
-                    <div>🟢 Live Video Stream</div>
-                    <button id="hangup-btn" style="background: #ea4335; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">❌ End Call</button>
+                    <div id="call-status-text">🟢 Connected</div>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="toggle-cam-btn" style="background: #34b7f1; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">📷 Camera On/Off</button>
+                        <button id="hangup-btn" style="background: #ea4335; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">❌ End Call</button>
+                    </div>
                 </div>
                 <video id="remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
                 <video id="local-video" autoplay playsinline muted style="position: absolute; bottom: 20px; right: 20px; width: 100px; height: 140px; object-fit: cover; border: 2px solid white; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transform: scaleX(-1);"></video>
@@ -190,30 +194,40 @@
 
         // --- FIXED: INCOMING CALL PROCESSOR WITH ANTI-RACE CONDITION TIMING QUEUE ---
         socket.on('webrtc-offer', async (data) => {
-            if (data.senderId === socket.id) return; // Drop own echo
+            if (data.senderId === socket.id) return;
 
-            const acceptCall = confirm("📞 Incoming Video Call! Click OK to accept and turn on your camera.");
+            const collision = makingOffer || peerConnection?.signalingState !== "stable";
+            if (!iAmPolite && collision) return; 
+
+            const alertTitle = data.videoMode ? "📹 Incoming Video Call!" : "📞 Incoming Voice Call!";
+            const acceptCall = confirm(`${alertTitle} Click OK to accept.`);
             if (!acceptCall) {
                 socket.emit('end-call');
                 return;
             }
 
             switchToVideoView(true);
+            callStatusText.textContent = "🟢 Live Connected";
 
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localStream = await navigator.mediaDevices.getUserMedia({ video: data.videoMode, audio: true });
                 localVideo.srcObject = localStream;
+                localVideo.style.display = data.videoMode ? 'block' : 'none';
             } catch (err) {
-                alert("Could not open mobile camera hardware layout.");
+                alert("Could not access media devices.");
                 socket.emit('end-call');
                 return;
             }
 
-            peerConnection = new RTCPeerConnection(rtcConfig);
+            if (!peerConnection) { peerConnection = new RTCPeerConnection(rtcConfig); }
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.ontrack = (event) => {
-                if (event.streams && event.streams[0]) { remoteVideo.srcObject = event.streams[0]; }
+                if (event.streams && event.streams[0]) { 
+                    remoteVideo.srcObject = event.streams[0]; 
+                    const hasVideo = event.streams[0].getVideoTracks().length > 0;
+                    remoteVideo.style.display = hasVideo ? 'block' : 'none';
+                }
             };
 
             peerConnection.onicecandidate = (event) => {
@@ -222,11 +236,8 @@
                 }
             };
 
-            // Set remote session string, then immediately flush out queued network candidates safely
             await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
             isRemoteDescriptionSet = true;
-            
-            // Safe execution line mapping loop
             while (iceCandidateQueue.length > 0) {
                 const cand = iceCandidateQueue.shift();
                 try { await peerConnection.addIceCandidate(new RTCIceCandidate(cand)); } catch(e) {}
@@ -234,28 +245,26 @@
 
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            socket.emit('webrtc-answer', answer);
+            socket.emit('webrtc-answer', { answer: answer, senderId: socket.id });
         });
-
-        socket.on('webrtc-answer', async (answer) => {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        socket.on('webrtc-answer', async (data) => {
+            if (data.senderId === socket.id) return;
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            callStatusText.textContent = "🟢 Live Connected";
         });
 
         socket.on('webrtc-ice', async (data) => {
-            if (data.senderId === socket.id) return; // Ignore own echo
-            
+            if (data.senderId === socket.id) return;
             if (!isRemoteDescriptionSet) {
-                // If the offer description isn't ready yet, save it in the holding queue
                 iceCandidateQueue.push(data.candidate);
             } else {
-                // Otherwise, feed it into the WebRTC instance immediately
                 try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) {}
             }
         });
 
         socket.on('end-call', () => {
             switchToVideoView(false);
-            alert("The video call has ended.");
+            alert("The call has ended.");
         });
     </script>
 </body>
