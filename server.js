@@ -15,16 +15,15 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
-// Array to track active user socket IDs linearly
+// Explicit list to track active socket links in real-time
 let activeUsers = [];
 
 io.on('connection', (socket) => {
-    // Add new user to our tracking tracking system
     activeUsers.push(socket.id);
-    console.log('User connected: ' + socket.id);
+    console.log('User joined room: ' + socket.id);
 
-    // Tell this specific user if they are the "Polite" or "Impolite" peer
-    // The first user in the array (index 0) is Impolite (takes precedence)
+    // Assign roles. The person who connected first is ALWAYS impolite (master host)
+    // The second person who joins is ALWAYS polite (responsive client node)
     const isPolite = activeUsers.indexOf(socket.id) !== 0;
     socket.emit('assign-role', { isPolite: isPolite });
 
@@ -44,6 +43,7 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('receive nudge');
     });
 
+    // WebRTC Real-Time Connection Signalling Lines
     socket.on('webrtc-offer', (data) => {
         io.emit('webrtc-offer', data);
     });
@@ -61,11 +61,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected: ' + socket.id);
-        // Clean them out of the tracking index
+        console.log('User left room: ' + socket.id);
         activeUsers = activeUsers.filter(id => id !== socket.id);
         
-        // Re-assign roles to remaining users so someone is always the stable host
+        // Dynamic re-assignment loop to keep states perfectly clean
         activeUsers.forEach((id, index) => {
             io.to(id).emit('assign-role', { isPolite: index !== 0 });
         });
@@ -74,5 +73,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server fully operational on network port ${PORT}`);
 });
