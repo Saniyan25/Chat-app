@@ -99,14 +99,15 @@
         let isRemoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
-        // Clean formatting without arrays to prevent URL parser mismatches
+// Bulletproof array mapping to bypass strict browser hostname checkers
 const rtcConfig = {
     iceServers: [
-        {
-            urls: "stun:://google.com"
+        { 
+            urls: ["stun:://google.com", "stun:://google.com"] 
         }
     ]
 };
+
 
         socket.on('assign-role', (data) => {
             iAmPolite = data.isPolite;
